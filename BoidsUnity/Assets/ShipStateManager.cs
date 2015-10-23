@@ -130,6 +130,9 @@ public class ShipStateManager
 
         result.Skills = this._skillsLaunched.ToList();
 
+        if (result.Skills.Count > 0)
+            Debug.Log("y a des tirs !");
+
         return result;
     }
 

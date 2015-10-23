@@ -9,6 +9,7 @@ using System.Collections.Generic;
 using System;
 using System.Collections.Concurrent;
 using Stormancer.Diagnostics;
+using Stormancer.Authentication;
 
 public class GameEngine : MonoBehaviour
 {
@@ -28,46 +29,61 @@ public class GameEngine : MonoBehaviour
     {
         UniRx.MainThreadDispatcher.Initialize();
         var loadingCanvas = GameObject.Find("LoadingCanvas");
-        var config = Stormancer.ClientConfiguration.ForAccount("d81fc876-6094-3d92-a3d0-86d42d866b96", "boids-demo");
+        var config = Stormancer.ClientConfiguration.ForAccount("d9590543-56c3-c94a-f7bf-c394b26deb15", "boids-test");
         config.Logger = DebugLogger.Instance;
         this._client = new Stormancer.Client(config);
 
 
         Debug.Log("calling GetPublicScene");
-        this._client.GetPublicScene("main-session", new PlayerInfos { isObserver = true }).ContinueWith(
+        _client.Authenticator().LoginAsViewer().ContinueWith(
             task =>
             {
                 if (!task.IsFaulted)
                 {
-                    var scene = task.Result;
-                    _scene = scene;
-                    scene.AddRoute("position.update", OnPositionUpdate);
-                    scene.AddRoute<ushort>("ship.remove", OnShipRemoved);
-                    scene.AddRoute("ship.usedSkill", OnUsedSkill);
-                    scene.AddRoute<StatusChangedMsg>("ship.statusChanged", OnStatusChanged);
-                    scene.AddRoute<ShipCreatedDto[]>("ship.add", OnShipAdded);
-                    scene.AddRoute("ship.pv", OnShipPv);
-
-
-                    _scene.Connect().Then(() =>
+                    Debug.Log("test1");
+                    var MatchMakerScene = task.Result;
+                    var matchmaker = new MatchmakerClient(MatchMakerScene);
+                    matchmaker.Connect().Then(s =>
                     {
-                        Debug.Log("Call dispatcher to hide UI.");
-                        UniRx.MainThreadDispatcher.Post(() =>
+                        matchmaker.FindMatch().Then(result =>
                         {
-                            Debug.Log("Hiding UI.");
-                            loadingCanvas.SetActive(false);//Hide loading ui.
+                            _client.GetScene(result.Token).Then(scene =>
+                            {
+                                _scene = scene;
+                                scene.AddRoute("position.update", OnPositionUpdate);
+                                scene.AddRoute<ushort>("ship.remove", OnShipRemoved);
+                                scene.AddRoute("ship.usedSkill", OnUsedSkill);
+                                scene.AddRoute<StatusChangedMsg>("ship.statusChanged", OnStatusChanged);
+                                scene.AddRoute<ShipCreatedDto[]>("ship.add", OnShipAdded);
+                                scene.AddRoute("ship.pv", OnShipPv);
+
+                                _scene.Connect().Then(() =>
+                                {
+                                    Debug.Log("Call dispatcher to hide UI.");
+                                    MainThread.Post(() =>
+                                    {
+                                        Debug.Log("Hiding UI.");
+                                        loadingCanvas.SetActive(false);//Hide loading ui.
 
 
+                                    });
+
+                                })
+                                .ContinueWith(t =>
+                                {
+                                    if (t.IsFaulted)
+                                    {
+                                        Debug.LogException(t.Exception.InnerException);
+                                    }
+                                });
+                            });
                         });
-
-                    })
-                    .ContinueWith(t =>
-                    {
-                        if (t.IsFaulted)
-                        {
-                            Debug.LogException(t.Exception.InnerException);
-                        }
                     });
+                }
+                else
+                // task.IsFaulted
+                {
+                    Debug.Log("task faulted");
                 }
             });
     }
